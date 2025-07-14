@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react";
 import { RxLightningBolt } from "react-icons/rx"
 import { FaSearchengin } from "react-icons/fa";
 import { TbFileTextSpark } from "react-icons/tb";
@@ -12,8 +13,52 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { LuDatabaseZap } from "react-icons/lu";
 import { IoIosCog } from "react-icons/io";
 import { ChromaLogo } from "@/components/chroma-logo";
+import { toast } from "sonner";
 
 export default function Home() {
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("");
+  const [tenant, setTenant] = useState("");
+  const [database, setDatabase] = useState("");
+  const [collectionID, setCollectionID] = useState("");
+
+  const [upload, setUpload] = useState(true);
+  const [embed, setEmbed] = useState(false);
+  const [store, setStore] = useState(false);
+  const [search, setSearch] = useState(false);
+
+  const handleTestConnection = async () => {
+    try {
+      const resp = await fetch(`http://${host}:${port}/api/v2/healthcheck`);
+      if (resp.status === 200)
+        console.log(resp);
+      toast.success("Database Connected");
+    } catch (error) {
+      console.error(error);
+      toast.error("Database healthcheck failed");
+    }
+  }
+
+  const openEmbed = () => {
+    toast.info("Selected Embed")
+    setEmbed(true);
+  }
+
+  const openUpload = () => {
+    toast.info("Selected Upload")
+    setUpload(true);
+  }
+
+  const openSearch = () => {
+    toast.info("Selected Search")
+    setSearch(true);
+  }
+
+  const openStore = () => {
+    toast.info("Selected Store")
+    setStore(true);
+  }
+
   return (
     <>
       <div className="flex justify-end mr-52">
@@ -45,6 +90,8 @@ export default function Home() {
                   <Input
                     id="host"
                     placeholder="localhost"
+                    value={host}
+                    onChange={(e) => setHost(e.target.value)}
                     className="bg-black/20 text-sm px-2 py-1 border-amber-400/30 text-amber-50 placeholder:text-amber-200/50 focus:border-amber-400/60 focus:ring-amber-400/20 rounded"
                   />
                 </div>
@@ -55,6 +102,8 @@ export default function Home() {
                     <Input
                       id="port"
                       placeholder="8000"
+                      value={port}
+                      onChange={(e) => setPort(e.target.value)}
                       className="bg-black/20 text-sm px-2 py-1 border-amber-400/30 text-amber-50 placeholder:text-amber-200/50 focus:border-amber-400/60 focus:ring-amber-400/20 rounded"
                     />
                   </div>
@@ -64,6 +113,8 @@ export default function Home() {
                     <Input
                       id="tenant"
                       placeholder="default"
+                      value={tenant}
+                      onChange={(e) => setTenant(e.target.value)}
                       className="bg-black/20 text-sm px-2 py-1 border-amber-400/30 text-amber-50 placeholder:text-amber-200/50 focus:border-amber-400/60 focus:ring-amber-400/20 rounded"
                     />
                   </div>
@@ -74,6 +125,8 @@ export default function Home() {
                   <Input
                     id="database"
                     placeholder="default_db"
+                    value={database}
+                    onChange={(e) => setDatabase(e.target.value)}
                     className="bg-black/20 text-sm px-2 py-1 border-amber-400/30 text-amber-50 placeholder:text-amber-200/50 focus:border-amber-400/60 focus:ring-amber-400/20 rounded"
                   />
                 </div>
@@ -83,23 +136,21 @@ export default function Home() {
                   <Input
                     id="collection_id"
                     placeholder="550e84...0000"
+                    value={collectionID}
+                    onChange={(e) => setCollectionID(e.target.value)}
                     className="bg-black/20 text-sm font-mono px-2 py-1 border-amber-400/30 text-amber-50 placeholder:text-amber-200/50 focus:border-amber-400/60 focus:ring-amber-400/20 rounded"
                   />
                 </div>
               </div>
 
-              <div className="pt-3 flex justify-between">
+              <div className="pt-3 flex justify-end">
                 <Button
+                  variant="glass"
                   size="sm"
-                  className="text-xs px-3 py-1 bg-amber-500/20 text-amber-100 border border-amber-400/30 hover:bg-amber-500/40 transition-all rounded"
+                  className="text-xs px-3 py-1 bg-amber-500 text-black font-semibold hover:bg-amber-300/80 transition-all rounded duration-300"
+                  onClick={handleTestConnection}
                 >
                   Test Connection
-                </Button>
-                <Button
-                  size="sm"
-                  className="text-xs px-3 py-1 bg-yellow-500 text-black font-semibold hover:bg-yellow-400 transition-all rounded"
-                >
-                  Save
                 </Button>
               </div>
             </div>
@@ -117,19 +168,31 @@ export default function Home() {
         </p>
 
         <div className="flex justify-center items-center gap-6 text-yellow-300">
-          <div className="flex items-center gap-2">
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={openUpload}
+          >
             <TbFileTextSpark size={18} />
             <span className="text-sm text-white/80">upload</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={openEmbed}
+          >
             <ImEmbed size={18} />
             <span className="text-sm text-white/80">embed</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={openStore}
+          >
             <AiOutlineDatabase size={18} />
             <span className="text-sm text-white/80">store</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={openSearch}
+          >
             <FaSearchengin size={18} />
             <span className="text-sm text-white/80">search</span>
           </div>
@@ -138,6 +201,25 @@ export default function Home() {
 
       <div className="mt-96 flex justify-center">
         {/* Component that takes in multiple files */}
+        {upload && (
+          <div></div>
+        )}
+
+        {/* Backend Call to create API and then either download those || export to chroma */}
+        {embed && (
+          <div></div>
+        )}
+
+        {/* embeddings need to be available for option to show that it is ready for import to chroma */}
+        {store && (
+          <div></div>
+        )}
+
+        {/* query the data from the backend and show the distances between the query sentence embeddings and the documents embeddings */}
+        {search && (
+          <div></div>
+        )}
+
       </div>
     </>
   );
