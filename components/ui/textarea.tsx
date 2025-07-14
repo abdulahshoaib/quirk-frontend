@@ -1,13 +1,39 @@
 import * as React from "react"
+import { Funnel_Display } from "next/font/google"
 
 import { cn } from "@/lib/utils"
+
+const funnelDisplay = Funnel_Display({
+  weight: "300",
+})
 
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
     <textarea
       data-slot="textarea"
       className={cn(
-        "border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 flex field-sizing-content min-h-16 w-full rounded-md border bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+        // Font
+        funnelDisplay.className,
+
+        // Layout
+        "flex field-sizing-content min-h-20 w-full max-w-xl px-3 py-2 resize-none",
+
+        // Typography
+        "text-base md:text-sm text-white placeholder:text-yellow-200/40",
+
+        // Border and background
+        "rounded-3xl border border-amber-300/50 bg-black/20 backdrop-blur-lg",
+        "dark:bg-input/30",
+
+        // Focus styles
+        "outline-none focus-visible:border-amber-300 focus-visible:ring-amber-300/50 focus-visible:ring-[1px]",
+
+        // Error states
+        "aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+
+        // Transitions and disabled state
+        "shadow-xs transition-[color,box-shadow] disabled:cursor-not-allowed disabled:opacity-50",
+
         className
       )}
       {...props}
