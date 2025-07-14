@@ -1,63 +1,183 @@
 "use client"
 
 import { useState } from "react";
+
 import { RxLightningBolt } from "react-icons/rx"
 import { FaSearchengin } from "react-icons/fa";
 import { TbFileTextSpark } from "react-icons/tb";
 import { AiOutlineDatabase } from "react-icons/ai";
+import { IoIosCog } from "react-icons/io";
 import { ImEmbed } from "react-icons/im";
+import { LuDatabaseZap } from "react-icons/lu";
+import { TiInfoLargeOutline } from "react-icons/ti";
+import { IoSearch } from "react-icons/io5";
+import { Upload, FileText, X } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { LuDatabaseZap } from "react-icons/lu";
-import { IoIosCog } from "react-icons/io";
 import { ChromaLogo } from "@/components/chroma-logo";
 import { toast } from "sonner";
 
+interface ChromaConfig {
+  host: string | "";
+  port: string | "";
+  tenant: string | "";
+  database: string | "";
+  collectionID: string | "";
+};
+
+interface QueryResp {
+  distances: number[][];
+  documents: string[][];
+}
+
 export default function Home() {
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("");
-  const [tenant, setTenant] = useState("");
-  const [database, setDatabase] = useState("");
-  const [collectionID, setCollectionID] = useState("");
+  const [chromaConfig, setChromaConfig] = useState<ChromaConfig | null>(null);
+  const [objectID, setObjectID] = useState("");
+  // options
+  const [selected, setSelected] = useState<"upload" | "embed" | "store" | "search">("upload")
 
-  const [upload, setUpload] = useState(true);
-  const [embed, setEmbed] = useState(false);
-  const [store, setStore] = useState(false);
-  const [search, setSearch] = useState(false);
+  // Upload
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [dragActive, setDragActive] = useState(false);
 
-  const handleTestConnection = async () => {
+  // Embed
+  const [hasEmbeddings, setHasEmbeddings] = useState(false);
+
+  // Search
+  const [isDbOnline, setDbOnline] = useState(false);
+  const [queryResp, setQueryResp] = useState<QueryResp | null>(null)
+  const [query, setQuery] = useState("");
+  const [waitRes, setWaitRes] = useState(false);
+
+  const handleDrag = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    setSelectedFiles(prevFiles => [...prevFiles, ...files]);
+    toast.success(`${files.length} file(s) added`);
+  };
+
+  const removeFile = (index: number) => {
+    setSelectedFiles(prevFiles => prevFiles.filter((_, i) => i !== index));
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const handleConnection = async () => {
     try {
-      const resp = await fetch(`http://${host}:${port}/api/v2/healthcheck`);
-      if (resp.status === 200)
-        console.log(resp);
-      toast.success("Database Connected");
+      if (chromaConfig) {
+        const resp = await fetch("http://localhost:8081/api/v2/healthcheck");
+        if (resp.status === 200) {
+          console.log(resp);
+          setDbOnline(true);
+          toast.success("Database Connected");
+        }
+      }
     } catch (error) {
       console.error(error);
       toast.error("Database healthcheck failed");
     }
+  };
+
+  const handleClearConfig = () => {
+    setChromaConfig((prev) => ({ ...prev!, host: "", port: "", collectionID: "", tenant: "", database: "" }));
+    setDbOnline(false);
   }
 
+  const handleProcess = () => {
+    openEmbed();
+  };
+
+  const postFiles = async () => {
+    try {
+      const formData = new FormData;
+      selectedFiles.forEach(file => {
+        formData.append("files", file);
+      });
+      const resp = await fetch("http://localhost:8080/process", { method: "POST", body: formData });
+      const { object_id } = await resp.json();
+      if (resp.ok) {
+        setObjectID(object_id);
+        toast.success("Files Uploaded");
+      }
+    } catch (error) {
+      console.error("Error Uploading to API");
+      toast.error("Error Uploading to API");
+    }
+  };
+
   const openEmbed = () => {
-    toast.info("Selected Embed")
-    setEmbed(true);
+    setSelected("embed");
+  };
+
+  const searchDB = async () => {
+    setWaitRes(true);
+    const payload = {
+      req: {
+        host: chromaConfig?.host,
+        port: chromaConfig?.port,
+        tenant: chromaConfig?.tenant,
+        database: chromaConfig?.database,
+        collection_id: chromaConfig?.collectionID
+      },
+      text: [query]
+    }
+    try {
+      const resp = await fetch("http://localhost:8080/query", { method: "POST", body: JSON.stringify(payload) })
+      const searchObj: QueryResp = await resp.json();
+      if (resp.ok) {
+        console.log("Documents ", searchObj.documents);
+        console.log("Distances ", searchObj.distances);
+        toast.success("Distance recived");
+        setQueryResp(searchObj);
+      }
+    } catch (error) {
+      console.error("Error fetching from DB", error);
+      toast.error("Error fetching from DB");
+    } finally {
+      setWaitRes(false);
+    }
   }
 
   const openUpload = () => {
-    toast.info("Selected Upload")
-    setUpload(true);
-  }
+    setSelected("upload");
+  };
 
   const openSearch = () => {
-    toast.info("Selected Search")
-    setSearch(true);
-  }
+    setSelected("search");
+  };
 
   const openStore = () => {
-    toast.info("Selected Store")
-    setStore(true);
-  }
+    setSelected("store");
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const files = Array.from(e.target.files);
+    setSelectedFiles(prev => [...prev, ...files]);
+    toast.success(`${files.length} file(s) added`);
+  };
 
   return (
     <>
@@ -90,8 +210,8 @@ export default function Home() {
                   <Input
                     id="host"
                     placeholder="localhost"
-                    value={host}
-                    onChange={(e) => setHost(e.target.value)}
+                    value={chromaConfig?.host}
+                    onChange={(e) => setChromaConfig((prev) => ({ ...prev!, host: e.target.value }))}
                     className="bg-black/20 text-sm px-2 py-1 border-amber-400/30 text-amber-50 placeholder:text-amber-200/50 focus:border-amber-400/60 focus:ring-amber-400/20 rounded"
                   />
                 </div>
@@ -102,8 +222,8 @@ export default function Home() {
                     <Input
                       id="port"
                       placeholder="8000"
-                      value={port}
-                      onChange={(e) => setPort(e.target.value)}
+                      value={chromaConfig?.port}
+                      onChange={(e) => setChromaConfig((prev) => ({ ...prev!, port: e.target.value }))}
                       className="bg-black/20 text-sm px-2 py-1 border-amber-400/30 text-amber-50 placeholder:text-amber-200/50 focus:border-amber-400/60 focus:ring-amber-400/20 rounded"
                     />
                   </div>
@@ -113,8 +233,8 @@ export default function Home() {
                     <Input
                       id="tenant"
                       placeholder="default"
-                      value={tenant}
-                      onChange={(e) => setTenant(e.target.value)}
+                      value={chromaConfig?.tenant}
+                      onChange={(e) => setChromaConfig((prev) => ({ ...prev!, tenant: e.target.value }))}
                       className="bg-black/20 text-sm px-2 py-1 border-amber-400/30 text-amber-50 placeholder:text-amber-200/50 focus:border-amber-400/60 focus:ring-amber-400/20 rounded"
                     />
                   </div>
@@ -125,8 +245,8 @@ export default function Home() {
                   <Input
                     id="database"
                     placeholder="default_db"
-                    value={database}
-                    onChange={(e) => setDatabase(e.target.value)}
+                    value={chromaConfig?.database}
+                    onChange={(e) => setChromaConfig((prev) => ({ ...prev!, database: e.target.value }))}
                     className="bg-black/20 text-sm px-2 py-1 border-amber-400/30 text-amber-50 placeholder:text-amber-200/50 focus:border-amber-400/60 focus:ring-amber-400/20 rounded"
                   />
                 </div>
@@ -136,21 +256,29 @@ export default function Home() {
                   <Input
                     id="collection_id"
                     placeholder="550e84...0000"
-                    value={collectionID}
-                    onChange={(e) => setCollectionID(e.target.value)}
+                    value={chromaConfig?.collectionID}
+                    onChange={(e) => setChromaConfig((prev) => ({ ...prev!, collectionID: e.target.value }))}
                     className="bg-black/20 text-sm font-mono px-2 py-1 border-amber-400/30 text-amber-50 placeholder:text-amber-200/50 focus:border-amber-400/60 focus:ring-amber-400/20 rounded"
                   />
                 </div>
               </div>
 
-              <div className="pt-3 flex justify-end">
+              <div className="pt-1 pb-3 flex gap-2 justify-end">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="px-3 py-1"
+                  onClick={handleClearConfig}
+                >
+                  Clear
+                </Button>
                 <Button
                   variant="glass"
                   size="sm"
-                  className="text-xs px-3 py-1 bg-amber-500 text-black font-semibold hover:bg-amber-300/80 transition-all rounded duration-300"
-                  onClick={handleTestConnection}
+                  className="px-3 py-1 bg-amber-500 text-black font-semibold hover:bg-amber-300/80 transition-all rounded duration-300"
+                  onClick={handleConnection}
                 >
-                  Test Connection
+                  Connect
                 </Button>
               </div>
             </div>
@@ -168,59 +296,489 @@ export default function Home() {
         </p>
 
         <div className="flex justify-center items-center gap-6 text-yellow-300">
-          <div
-            className="flex items-center gap-2 cursor-pointer"
-            onClick={openUpload}
-          >
-            <TbFileTextSpark size={18} />
-            <span className="text-sm text-white/80">upload</span>
-          </div>
-          <div
-            className="flex items-center gap-2 cursor-pointer"
-            onClick={openEmbed}
-          >
-            <ImEmbed size={18} />
-            <span className="text-sm text-white/80">embed</span>
-          </div>
-          <div
-            className="flex items-center gap-2 cursor-pointer"
-            onClick={openStore}
-          >
-            <AiOutlineDatabase size={18} />
-            <span className="text-sm text-white/80">store</span>
-          </div>
-          <div
-            className="flex items-center gap-2 cursor-pointer"
-            onClick={openSearch}
-          >
-            <FaSearchengin size={18} />
-            <span className="text-sm text-white/80">search</span>
+          <div className="flex items-center justify-center gap-4">
+            <div
+              onClick={openUpload}
+              className={`flex items-center gap-2 px-3 py-2 rounded-full cursor-pointer transition-all duration-200 ${selected === "upload" ? "bg-amber-500/70" : "hover:bg-white/10"}`}
+            >
+              <TbFileTextSpark size={18} className={selected === "upload" ? "text-amber-300" : "text-yellow-300"} />
+              <span className={`text-sm capitalize ${selected === "upload" ? "text-amber-100" : "text-white/80"}`}>
+                upload
+              </span>
+            </div>
+
+            <div
+              onClick={openEmbed}
+              className={`flex items-center gap-2 px-3 py-2 rounded-full cursor-pointer transition-all duration-200 ${selected === "embed" ? "bg-amber-500/70" : "hover:bg-white/10"}`}
+            >
+              <ImEmbed size={18} className={selected === "embed" ? "text-amber-300" : "text-yellow-300"} />
+              <span className={`text-sm capitalize ${selected === "embed" ? "text-amber-100" : "text-white/80"}`}>
+                embed
+              </span>
+            </div>
+
+            <div
+              onClick={openStore}
+              className={`flex items-center gap-2 px-3 py-2 rounded-full cursor-pointer transition-all duration-200 ${selected === "store" ? "bg-amber-500/70" : "hover:bg-white/10"}`}
+            >
+              <AiOutlineDatabase size={18} className={selected === "store" ? "text-amber-300" : "text-yellow-300"} />
+              <span className={`text-sm capitalize ${selected === "store" ? "text-amber-100" : "text-white/80"}`}>
+                store
+              </span>
+            </div>
+
+            <div
+              onClick={openSearch}
+              className={`flex items-center gap-2 px-3 py-2 rounded-full cursor-pointer transition-all duration-200 ${selected === "search" ? "bg-amber-500/70" : "hover:bg-white/10"}`}
+            >
+              <FaSearchengin size={18} className={selected === "search" ? "text-amber-300" : "text-yellow-300"} />
+              <span className={`text-sm capitalize ${selected === "search" ? "text-amber-100" : "text-white/80"}`}>
+                search
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="mt-96 flex justify-center">
+      <div className="mt-24 flex justify-center">
         {/* Component that takes in multiple files */}
-        {upload && (
-          <div></div>
+        {selected == "upload" && (
+          <div className="w-full max-w-4xl space-y-6">
+            {selectedFiles.length === 0 ? (
+              <div
+                className={`relative w-full px-8 py-12 bg-gradient-to-br from-black/40 to-black/20 backdrop-blur-xl rounded-2xl border-2 border-dashed transition-all duration-300 shadow-2xl shadow-amber-500/5 ${dragActive
+                  ? 'border-amber-400/60 bg-amber-500/10'
+                  : 'border-amber-400/30 hover:border-amber-400/50'
+                  }`}
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+              >
+                <div className="flex flex-col items-center justify-center space-y-6">
+                  <div className="p-6 bg-gradient-to-br from-amber-500/20 to-yellow-500/20 rounded-full shadow-lg">
+                    <Upload className="w-12 h-12 text-amber-300" />
+                  </div>
+
+                  <div className="text-center space-y-2">
+                    <h3 className="text-xl font-semibold text-amber-100">
+                      Drop your files here
+                    </h3>
+                    <p className="text-amber-200/70 text-sm">
+                      or click to browse and select files
+                    </p>
+                  </div>
+
+                  <div className="flex items-center space-x-4">
+                    <Label htmlFor="file-upload" className="cursor-pointer">
+                      <div className="px-6 py-3 bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-semibold rounded-lg hover:from-amber-600 hover:to-yellow-600 transition-all duration-300 shadow-lg hover:shadow-amber-500/30">
+                        Choose Files
+                      </div>
+                    </Label>
+
+                    <Input
+                      id="file-upload"
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={handleFileChange}
+                    />
+                  </div>
+
+                  <p className="text-amber-200/50 text-xs">
+                    Supports: PDF, TXT, DOC, DOCX, CSV, JSON and more
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-black/30 backdrop-blur-xl rounded-xl border border-amber-400/20 shadow-lg shadow-amber-500/10 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-lg font-semibold text-amber-100 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-amber-400" />
+                    Selected Files ({selectedFiles.length})
+                  </h4>
+                  <div className="flex justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedFiles([])}
+                      className="text-amber-200 hover:text-amber-100 hover:bg-amber-500/10"
+                    >
+                      Clear All
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {selectedFiles.map((file, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between p-3 bg-black/20 rounded-lg border border-amber-400/20 hover:border-amber-400/30 transition-all"
+                    >
+                      <div className="flex items-center gap-3">
+                        <FileText className="w-4 h-4 text-amber-400" />
+                        <div>
+                          <p className="text-amber-100 text-sm font-medium truncate max-w-xs">
+                            {file.name}
+                          </p>
+                          <p className="text-amber-200/60 text-xs">
+                            {formatFileSize(file.size)}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeFile(index)}
+                        className="text-amber-200 hover:text-red-400 hover:bg-red-500/10 p-1"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-amber-400/20">
+                  <Button
+                    className="w-full bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-semibold hover:from-amber-600 hover:to-yellow-600 transition-all duration-300 shadow-lg hover:shadow-amber-500/30"
+                    onClick={handleProcess}
+                  >
+                    Process {selectedFiles.length} File{selectedFiles.length > 1 ? 's' : ''}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Backend Call to create API and then either download those || export to chroma */}
-        {embed && (
-          <div></div>
+        {selected == "embed" && (
+          <div className="w-full max-w-4xl space-y-1">
+            {/* Embeddings Status */}
+            <div className="bg-gradient-to-br from-black/40 to-black/20 backdrop-blur-xl rounded-2xl border border-amber-400/30 shadow-2xl shadow-amber-500/5 p-8">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-gradient-to-br from-amber-500/20 to-yellow-500/20 rounded-full">
+                    <ImEmbed className="w-6 h-6 text-amber-300" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-semibold text-amber-100">Vector Embeddings</h3>
+                    <p className="text-amber-200/70 text-sm">Transform your data into vector representations</p>
+                  </div>
+                </div>
+
+                {/* Status Indicator */}
+                <div className="flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full ${selectedFiles.length > 0 ? "bg-green-400" : "animate-pulse bg-amber-400"}`} />
+                  <span className={`text-sm font-medium ${selectedFiles.length > 0 ? "text-green-300" : "text-amber-300"}`} >
+                    {selectedFiles.length > 0 ? "Ready" : "Waiting for files"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Processing Actions */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <Button
+                    disabled={selectedFiles.length === 0}
+                    className="px-6 py-3 bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-semibold hover:from-amber-600 hover:to-yellow-600 disabled:from-amber-700 disabled:to-amber-800 disabled:text-gray-400 transition-all duration-300 shadow-lg hover:shadow-amber-500/30"
+                    onClick={postFiles}
+                  >
+                    Generate Embeddings
+                  </Button>
+
+                  <div className="text-amber-200/60 text-sm">
+                    {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Export Section - Only shown when embeddings are ready */}
+            {selectedFiles.length > 0 && (
+              <div className="bg-black/30 backdrop-blur-xl rounded-xl border border-amber-400/20 shadow-lg shadow-amber-500/10 p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-gradient-to-br from-green-500/20 to-emerald-500/20 rounded-full">
+                      <Upload className="w-5 h-5 text-green-400" />
+                    </div>
+                    <div>
+                      <h4 className="text-lg font-semibold text-amber-100">Export Embeddings</h4>
+                      <p className="text-amber-200/70 text-sm">Download your vector embeddings</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${hasEmbeddings ? "bg-green-200" : "bg-yellow-200 animate-pulse"}`}
+                    ></div>
+                    <span className={`text-sm font-medium ${hasEmbeddings ? "text-green-200" : "text-yellow-200"}`}>
+                      {hasEmbeddings ? "Ready" : "Waiting for Embeddings"}
+                    </span>
+                  </div>
+
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="format-select" className="text-amber-200 text-sm font-medium">
+                      Format:
+                    </Label>
+                    <select
+                      id="format-select"
+                      className="bg-black/20 cursor-pointer border border-amber-400/30 rounded-lg px-3 py-2 text-amber-100 text-sm focus:border-amber-400/60 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                      defaultValue="json"
+                    >
+                      <option value="json" className="bg-black text-amber-100 cursor-pointer">JSON</option>
+                      <option value="csv" className="bg-black text-amber-100 cursor-pointer">CSV</option>
+                    </select>
+                  </div>
+
+                  <Button
+                    disabled={!hasEmbeddings}
+                    className="px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-black font-semibold hover:from-green-600 hover:to-emerald-600 transition-all duration-300 shadow-lg hover:shadow-green-500/30"
+                  >
+                    Export
+                  </Button>
+                </div>
+
+                {/* Export Options */}
+                <div className="mt-4 pt-4 border-t border-amber-400/20">
+                  <div className="text-amber-200/60 text-sm space-y-1">
+                    <p>• JSON: Structured format with metadata and vector arrays</p>
+                    <p>• CSV: Tabular format suitable for analysis and ML workflows</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </div>
         )}
 
         {/* embeddings need to be available for option to show that it is ready for import to chroma */}
-        {store && (
-          <div></div>
+        {selected == "store" && (
+          <div className="w-full max-w-4xl space-y-6">
+            {/* Store to Database Header */}
+            <div className="bg-gradient-to-br from-black/40 to-black/20 backdrop-blur-xl rounded-2xl border border-amber-400/30 shadow-2xl shadow-amber-500/5 p-8">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-gradient-to-br from-amber-500/20 to-yellow-500/20 rounded-full">
+                    <AiOutlineDatabase className="w-6 h-6 text-amber-300" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-semibold text-amber-100">Store to Database</h3>
+                    <p className="text-amber-200/70 text-sm">Save your embeddings to ChromaDB</p>
+                  </div>
+                </div>
+
+                {/* Status Indicator */}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`w-3 h-3 rounded-full ${hasEmbeddings ? "bg-green-400" : "bg-amber-400 animate-pulse"}`}
+                    />
+                    <span
+                      className={`text-sm font-medium ${hasEmbeddings ? "text-green-300" : "text-amber-300"}`}
+                    >
+                      {hasEmbeddings ? "Embeddings Ready" : "No embeddings available"}
+                    </span>
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Database Configuration Display */}
+              <div className="bg-black/30 rounded-lg p-4 mb-6">
+                <h4 className="text-amber-100 font-medium mb-3 flex items-center gap-2">
+                  <LuDatabaseZap className="w-4 h-4 text-amber-400" />
+                  Current Configuration
+                </h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-amber-200/60">Host:</span>
+                    <span className="text-amber-100 ml-2">{chromaConfig?.host || 'not set'}</span>
+                  </div>
+                  <div>
+                    <span className="text-amber-200/60">Port:</span>
+                    <span className="text-amber-100 ml-2">{chromaConfig?.port || '8000'}</span>
+                  </div>
+                  <div>
+                    <span className="text-amber-200/60">Tenant:</span>
+                    <span className="text-amber-100 ml-2">{chromaConfig?.tenant || 'default'}</span>
+                  </div>
+                  <div>
+                    <span className="text-amber-200/60">Database:</span>
+                    <span className="text-amber-100 ml-2">{chromaConfig?.database || 'default_db'}</span>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-amber-200/60">Collection ID:</span>
+                    <span className="text-amber-100 ml-2 font-mono text-xs">{chromaConfig?.collectionID || 'Not specified'} </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Store Action */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <Button
+                      disabled={!hasEmbeddings}
+                      className="px-6 py-3 bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-semibold hover:from-amber-600 hover:to-yellow-600 disabled:from-amber-700 disabled:to-amber-800 disabled:text-gray-400 transition-all duration-300 shadow-lg hover:shadow-amber-500/30"
+                      onClick={() => {
+                        if (hasEmbeddings) {
+                          toast.success("Storing embeddings to ChromaDB...");
+                        }
+                      }}
+                    >
+                      Store to Database
+                    </Button>
+
+                    {hasEmbeddings && (
+                      <div className="text-green-400 text-sm flex items-center gap-1">
+                        <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                        Ready to store
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Storage Progress */}
+            {hasEmbeddings && (
+              <div className="bg-black/30 backdrop-blur-xl rounded-xl border border-amber-400/20 shadow-lg shadow-amber-500/10 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-lg font-semibold text-amber-100 flex items-center gap-2">
+                    <Upload className="w-5 h-5 text-amber-400" />
+                    Storage Details
+                  </h4>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-amber-200/70">Embeddings count:</span>
+                    <span className="text-amber-100">{selectedFiles.length} documents</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-amber-200/70">Vector dimensions:</span>
+                    <span className="text-amber-100">768</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-amber-200/70">Storage format:</span>
+                    <span className="text-amber-100">ChromaDB collection</span>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-amber-400/20">
+                  <div className="text-amber-200/60 text-sm space-y-1">
+                    <p>• Embeddings will be stored with metadata and document references</p>
+                    <p>• Collection will be created if it doesn't exist</p>
+                    <p>• Duplicate documents will be updated automatically</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {/* query the data from the backend and show the distances between the query sentence embeddings and the documents embeddings */}
-        {search && (
-          <div></div>
+        {selected == "search" && (
+          <div className="w-full max-w-4xl space-y-6">
+            {/* Search in Database Header */}
+            <div className="bg-gradient-to-br from-black/40 to-black/20 backdrop-blur-xl rounded-2xl border border-amber-400/30 shadow-2xl shadow-amber-500/5 p-8">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-gradient-to-br from-amber-500/20 to-yellow-500/20 rounded-full">
+                    <FaSearchengin className="w-6 h-6 text-amber-300" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-semibold text-amber-100">Search in Database</h3>
+                    <p className="text-amber-200/70 text-sm">Query stored embeddings from ChromaDB</p>
+                  </div>
+                </div>
+
+                {/* DB Status */}
+                <div className="flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full ${!chromaConfig ? "bg-zinc-200/40" : isDbOnline ? "bg-green-400" : "bg-red-400 animate-pulse"}`} />
+                  <span className={`text-sm font-medium ${!chromaConfig ? "text-zinc-100/40" : isDbOnline ? "text-green-300" : "text-red-300"}`}>
+                    {!chromaConfig ? "Database not Configured" : isDbOnline ? "Database Online" : "Database Offline"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Query Input */}
+              <div className="space-y-4">
+                <label htmlFor="query" className="block text-sm font-medium text-amber-200/70">
+                  Write a sentence to query
+                </label>
+                <Input
+                  id="query"
+                  type="text"
+                  placeholder="e.g., How does quantum computing work?"
+                  className="w-full bg-black/30 border border-amber-400/20 text-amber-100 placeholder:text-amber-400/40"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  disabled={!isDbOnline}
+                />
+                <Button
+                  onClick={searchDB}
+                  disabled={!isDbOnline || !query.trim() || waitRes || !chromaConfig}
+                  aria-disabled={!isDbOnline || !query.trim() || waitRes || !chromaConfig}
+                  className="w-full font-semibold transition-all duration-300 shadow-lg bg-gradient-to-r from-amber-500 to-yellow-500 text-black hover:from-amber-600 hover:to-yellow-600 hover:shadow-amber-500/30 disabled:from-amber-700 disabled:to-amber-800 disabled:text-gray-400 disabled:cursor-not-allowed"
+                >
+                  {waitRes ? (
+                    <span className="text-black">
+                      Hang on this might take a second
+                    </span>
+                  ) : (
+                    "Search Database"
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {/* Query Results */}
+            {queryResp?.distances && queryResp.distances[0]?.length > 0 && (
+              <div className="bg-black/30 backdrop-blur-xl rounded-xl border border-amber-400/20 shadow-lg shadow-amber-500/10 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h4 className="text-lg font-semibold text-amber-100 flex items-center gap-2">
+                        <IoSearch className="w-5 h-5 text-amber-400" />
+                        Vector Similarity Results
+                      </h4>
+                      <div className="flex items-center gap-2 mt-3">
+                        <TiInfoLargeOutline size={20} className="text-amber-400" />
+                        <p className="text-xs text-amber-200/70">
+                          Semantic matches ranked by similarity
+                        </p>
+                        <div className="w-1 h-1 bg-amber-400/50 rounded-full"></div>
+                        <p className="text-xs text-amber-200/50">
+                          Distance: 0.0 = perfect match, +1.0 = low similarity
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 text-sm">
+                  {queryResp.distances[0]?.map((distance, idx) => (
+                    <div key={idx} className="p-4 bg-black/20 rounded-lg border border-amber-400/20 mb-3">
+                      <p className="text-amber-100 font-mono whitespace-pre-wrap line-clamp-1 truncate">
+                        <span className="text-amber-400">{idx + 1}. </span>{queryResp.documents[0]?.[idx] ?? "Document not found"}
+                      </p>
+                      <h3 className="text-amber-200/70 mt-2">
+                        Distance: {distance.toFixed(4)}
+                      </h3>
+                    </div>
+                  ))}
+
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
-      </div>
+      </div >
     </>
   );
 }
