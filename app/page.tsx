@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { RxLightningBolt } from "react-icons/rx"
 import { FaSearchengin } from "react-icons/fa";
@@ -44,13 +44,24 @@ export default function Home() {
   const [dragActive, setDragActive] = useState(false);
 
   // Embed
+  const [format, setFormat] = useState<"json" | "csv">("json");
   const [hasEmbeddings, setHasEmbeddings] = useState(false);
+  const [generatingEmbeddings, setGeneratingEmbeddings] = useState(false);
+
+  // Store
+  const [operation, setOperation] = useState<"add" | "update">("add");
+  const [exportingToChroma, setExportingToChroma] = useState(false);
 
   // Search
   const [isDbOnline, setDbOnline] = useState(false);
   const [queryResp, setQueryResp] = useState<QueryResp | null>(null)
   const [query, setQuery] = useState("");
   const [waitRes, setWaitRes] = useState(false);
+
+  const isChromaConfigured =
+    chromaConfig &&
+    Object.values(chromaConfig).every((v) => v && v.trim() !== "");
+
 
   const handleDrag = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -111,6 +122,7 @@ export default function Home() {
 
   const postFiles = async () => {
     try {
+      setGeneratingEmbeddings(true);
       const formData = new FormData;
       selectedFiles.forEach(file => {
         formData.append("files", file);
@@ -122,21 +134,58 @@ export default function Home() {
         toast.success("Files Uploaded");
       }
     } catch (error) {
-      console.error("Error Uploading to API");
+      console.error("Error Uploading to API", error);
       toast.error("Error Uploading to API");
+      setGeneratingEmbeddings(false);
     }
   };
+
+  useEffect(() => {
+    if (!objectID) return;
+
+    const timer = setTimeout(() => {
+      checkStatus();
+    }, 5000)
+
+    return () => clearTimeout(timer);
+  }, [objectID]);
 
   const openEmbed = () => {
     setSelected("embed");
   };
+
+  const maxRetries = 4;
+  let retryCount = 0;
+  const checkStatus = async () => {
+    if (!objectID) return;
+    else if (retryCount >= maxRetries) {
+      toast.error("Server timeout, took too long to respond");
+    }
+    try {
+      const resp = await fetch(`http://localhost:8080/status?object_id=${objectID}`);
+      const { status } = await resp.json();
+      if (status === "completed") {
+        console.log("Status ", status);
+        setHasEmbeddings(true);
+      } else if (status === "processing") {
+        console.log("Still processing, will check again in 3s");
+        setTimeout(checkStatus, 3000);
+      }
+    } catch (error) {
+      console.error("Failed to embed data: ", error);
+      toast.error("Failed to embed data");
+    } finally {
+      setGeneratingEmbeddings(false);
+      toast.success("Embeddings Generated");
+    }
+  }
 
   const searchDB = async () => {
     setWaitRes(true);
     const payload = {
       req: {
         host: chromaConfig?.host,
-        port: chromaConfig?.port,
+        port: Number(chromaConfig?.port),
         tenant: chromaConfig?.tenant,
         database: chromaConfig?.database,
         collection_id: chromaConfig?.collectionID
@@ -158,7 +207,7 @@ export default function Home() {
     } finally {
       setWaitRes(false);
     }
-  }
+  };
 
   const openUpload = () => {
     setSelected("upload");
@@ -178,6 +227,79 @@ export default function Home() {
     setSelectedFiles(prev => [...prev, ...files]);
     toast.success(`${files.length} file(s) added`);
   };
+
+  const handleExport = async () => {
+    const toastID = toast.loading(`Downloading embeddings as ${format}...`);
+    try {
+      const resp = await fetch(`http://localhost:8080/export?object_id=${objectID}&format=${format}`);
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+
+        // Try to extract filename from header, fallback if not set
+        const contentDisposition = resp.headers.get("Content-Disposition");
+        let filename = "exported_file";
+
+        if (contentDisposition && contentDisposition.includes("filename=")) {
+          const match = contentDisposition.match(/filename="?(.+?)"?$/);
+          if (match) {
+            filename = match[1];
+          }
+        }
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+
+        // Cleanup
+        setTimeout(() => {
+          URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+        }, 100);
+
+        toast.success("Download complete");
+      }
+    } catch (error) {
+      console.error("Error downloading embeddings: ", error);
+      toast.error("Error downloading embeddings");
+    } finally {
+      toast.dismiss(toastID);
+    }
+  };
+
+  const handleExportChroma = async () => {
+    const payload = {
+      req: {
+        Host: chromaConfig?.host,
+        Port: Number(chromaConfig?.port),
+        Tenant: chromaConfig?.tenant,
+        Database: chromaConfig?.database,
+        Collection_id: chromaConfig?.collectionID
+      },
+      payload: {}
+    }
+    setExportingToChroma(true);
+    try {
+      const resp = await fetch(
+        `http://localhost:8080/export-chroma?operation=${operation}&object_id=${objectID}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }
+      );
+      if (resp.ok) {
+        toast.success(`Files ${operation} to chroma`)
+      }
+    } catch (error) {
+      console.error("Failed to export to chroma: ", error);
+      toast.error("Failed to export to chroma");
+    } finally {
+      setExportingToChroma(false);
+    }
+  }
 
   return (
     <>
@@ -386,7 +508,7 @@ export default function Home() {
                   </div>
 
                   <p className="text-amber-200/50 text-xs">
-                    Supports: PDF, TXT, DOC, DOCX, CSV, JSON and more
+                    Supports: PDF, TXT, DOC, CSV, JSON
                   </p>
                 </div>
               </div>
@@ -480,11 +602,11 @@ export default function Home() {
               <div className="space-y-4">
                 <div className="flex items-center gap-4">
                   <Button
-                    disabled={selectedFiles.length === 0}
-                    className="px-6 py-3 bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-semibold hover:from-amber-600 hover:to-yellow-600 disabled:from-amber-700 disabled:to-amber-800 disabled:text-gray-400 transition-all duration-300 shadow-lg hover:shadow-amber-500/30"
+                    disabled={selectedFiles.length === 0 || generatingEmbeddings}
+                    className="w-56 px-6 py-3 bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-semibold hover:from-amber-600 hover:to-yellow-600 disabled:from-amber-700 disabled:to-amber-800 disabled:text-gray-400 transition-all duration-300 shadow-lg hover:shadow-amber-500/30"
                     onClick={postFiles}
                   >
-                    Generate Embeddings
+                    {!generatingEmbeddings ? "Generate Embeddings" : "Generating..."}
                   </Button>
 
                   <div className="text-amber-200/60 text-sm">
@@ -509,10 +631,10 @@ export default function Home() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${hasEmbeddings ? "bg-green-200" : "bg-yellow-200 animate-pulse"}`}
+                    <div className={`w-2 h-2 rounded-full ${hasEmbeddings && !generatingEmbeddings ? "bg-green-400" : "bg-yellow-400 animate-pulse"}`}
                     ></div>
-                    <span className={`text-sm font-medium ${hasEmbeddings ? "text-green-200" : "text-yellow-200"}`}>
-                      {hasEmbeddings ? "Ready" : "Waiting for Embeddings"}
+                    <span className={`text-sm font-medium ${hasEmbeddings && !generatingEmbeddings ? "text-green-400" : "text-yellow-400"}`}>
+                      {hasEmbeddings && !generatingEmbeddings ? "Ready" : "Waiting for Embeddings"}
                     </span>
                   </div>
 
@@ -526,7 +648,8 @@ export default function Home() {
                     <select
                       id="format-select"
                       className="bg-black/20 cursor-pointer border border-amber-400/30 rounded-lg px-3 py-2 text-amber-100 text-sm focus:border-amber-400/60 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
-                      defaultValue="json"
+                      value={format}
+                      onChange={(e) => setFormat(e.target.value as "json" | "csv")}
                     >
                       <option value="json" className="bg-black text-amber-100 cursor-pointer">JSON</option>
                       <option value="csv" className="bg-black text-amber-100 cursor-pointer">CSV</option>
@@ -534,8 +657,9 @@ export default function Home() {
                   </div>
 
                   <Button
-                    disabled={!hasEmbeddings}
+                    disabled={!hasEmbeddings || !objectID || generatingEmbeddings}
                     className="px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-black font-semibold hover:from-green-600 hover:to-emerald-600 transition-all duration-300 shadow-lg hover:shadow-green-500/30"
+                    onClick={handleExport}
                   >
                     Export
                   </Button>
@@ -574,12 +698,12 @@ export default function Home() {
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-2">
                     <div
-                      className={`w-3 h-3 rounded-full ${hasEmbeddings ? "bg-green-400" : "bg-amber-400 animate-pulse"}`}
+                      className={`w-3 h-3 rounded-full  ${!isChromaConfigured ? "bg-red-400 animate-caret-blink transition-opacity duration-700" : hasEmbeddings ? "bg-green-400" : "bg-amber-400 animate-pulse"}`}
                     />
                     <span
-                      className={`text-sm font-medium ${hasEmbeddings ? "text-green-300" : "text-amber-300"}`}
+                      className={`text-sm font-medium ${!isChromaConfigured ? "text-red-400" : hasEmbeddings ? "text-green-300" : "text-amber-300"}`}
                     >
-                      {hasEmbeddings ? "Embeddings Ready" : "No embeddings available"}
+                      {!isChromaConfigured ? "Configure Chroma" : hasEmbeddings ? "Embeddings Found" : "No embeddings available"}
                     </span>
                   </div>
 
@@ -599,15 +723,15 @@ export default function Home() {
                   </div>
                   <div>
                     <span className="text-amber-200/60">Port:</span>
-                    <span className="text-amber-100 ml-2">{chromaConfig?.port || '8000'}</span>
+                    <span className="text-amber-100 ml-2">{chromaConfig?.port || 'not set'}</span>
                   </div>
                   <div>
                     <span className="text-amber-200/60">Tenant:</span>
-                    <span className="text-amber-100 ml-2">{chromaConfig?.tenant || 'default'}</span>
+                    <span className="text-amber-100 ml-2">{chromaConfig?.tenant || 'not set'}</span>
                   </div>
                   <div>
                     <span className="text-amber-200/60">Database:</span>
-                    <span className="text-amber-100 ml-2">{chromaConfig?.database || 'default_db'}</span>
+                    <span className="text-amber-100 ml-2">{chromaConfig?.database || 'not set'}</span>
                   </div>
                   <div className="col-span-2">
                     <span className="text-amber-200/60">Collection ID:</span>
@@ -621,18 +745,14 @@ export default function Home() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <Button
-                      disabled={!hasEmbeddings}
-                      className="px-6 py-3 bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-semibold hover:from-amber-600 hover:to-yellow-600 disabled:from-amber-700 disabled:to-amber-800 disabled:text-gray-400 transition-all duration-300 shadow-lg hover:shadow-amber-500/30"
-                      onClick={() => {
-                        if (hasEmbeddings) {
-                          toast.success("Storing embeddings to ChromaDB...");
-                        }
-                      }}
+                      disabled={!hasEmbeddings || !isChromaConfigured || exportingToChroma}
+                      className="w-52 px-6 py-3 bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-semibold hover:from-amber-600 hover:to-yellow-600 disabled:from-amber-700 disabled:to-amber-800 disabled:text-gray-400 transition-all duration-300 shadow-lg hover:shadow-amber-500/30"
+                      onClick={handleExportChroma}
                     >
-                      Store to Database
+                      {exportingToChroma ? "Storing..." : "Store to Chroma"}
                     </Button>
 
-                    {hasEmbeddings && (
+                    {hasEmbeddings && isChromaConfigured && (
                       <div className="text-green-400 text-sm flex items-center gap-1">
                         <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                         Ready to store
@@ -660,7 +780,7 @@ export default function Home() {
                   </div>
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-amber-200/70">Vector dimensions:</span>
-                    <span className="text-amber-100">768</span>
+                    <span className="text-amber-100">1024</span>
                   </div>
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-amber-200/70">Storage format:</span>
@@ -764,7 +884,14 @@ export default function Home() {
                   {queryResp.distances[0]?.map((distance, idx) => (
                     <div key={idx} className="p-4 bg-black/20 rounded-lg border border-amber-400/20 mb-3">
                       <p className="text-amber-100 font-mono whitespace-pre-wrap line-clamp-1 truncate">
-                        <span className="text-amber-400">{idx + 1}. </span>{queryResp.documents[0]?.[idx] ?? "Document not found"}
+                        <span className="text-amber-400">{idx + 1}. </span>
+                        {
+                          queryResp.documents[0]?.[idx]
+                            ? (queryResp.documents[0][idx][0] === '\n'
+                              ? queryResp.documents[0][idx].slice(1)
+                              : queryResp.documents[0][idx])
+                            : "Document not found"
+                        }
                       </p>
                       <h3 className="text-amber-200/70 mt-2">
                         Distance: {distance.toFixed(4)}
@@ -781,4 +908,4 @@ export default function Home() {
       </div >
     </>
   );
-}
+};
