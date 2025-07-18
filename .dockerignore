@@ -1,0 +1,15 @@
+# Node.js modules
+node_modules
+
+# Next.js build output
+.next
+
+# Development and Git-related files
+.dockerignore
+.git
+.gitignore
+npm-debug.log
+.DS_Store
+
+# Optionally, exclude public directory if you manage static assets differently
+public
