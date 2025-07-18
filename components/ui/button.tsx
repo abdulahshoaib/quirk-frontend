@@ -7,7 +7,8 @@ import { Funnel_Display } from "next/font/google";
 import { cn } from "@/lib/utils"
 
 const funnelDisplay = Funnel_Display({
-  weight: "300"
+  subsets: ['latin'],
+  weight: "300",
 })
 
 const buttonVariants = cva(
@@ -22,7 +23,7 @@ const buttonVariants = cva(
         outline:
           "border border-gray-300 bg-white shadow-sm hover:bg-gray-50 hover:text-gray-900 focus-visible:ring-yellow-500",
         secondary:
-          "bg-gray-100 text-gray-900 shadow-sm hover:bg-gray-200 focus-visible:ring-gray-500",
+          "bg-amber-700 text-white border border-amber-800 shadow-sm hover:bg-amber-800 hover:shadow-md focus-visible:ring-2 focus-visible:ring-amber-500 focus:outline-none transition-colors",
         glass:
           "bg-black/10 backdrop-blur-md border border-white/20 text-white shadow-inner hover:bg-yellow-700/25 hover:shadow-lg focus-visible:ring-white",
         ghost:

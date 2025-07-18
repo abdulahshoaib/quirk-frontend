@@ -4,7 +4,8 @@ import "./globals.css";
 import { Toaster } from "sonner";
 
 const funnelDisplay = Funnel_Display({
-  weight: "400"
+  weight: "400",
+  subsets: ['latin'],
 })
 
 export const metadata: Metadata = {

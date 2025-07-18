@@ -34,6 +34,11 @@ interface QueryResp {
 }
 
 export default function Home() {
+  // auth
+  const [email, setEmail] = useState("");
+  const [token, setToken] = useState("");
+  const [loading, setLoading] = useState(false);
+
   const [chromaConfig, setChromaConfig] = useState<ChromaConfig | null>(null);
   const [objectID, setObjectID] = useState("");
   // options
@@ -53,7 +58,6 @@ export default function Home() {
   const [exportingToChroma, setExportingToChroma] = useState(false);
 
   // Search
-  const [isDbOnline, setDbOnline] = useState(false);
   const [queryResp, setQueryResp] = useState<QueryResp | null>(null)
   const [query, setQuery] = useState("");
   const [waitRes, setWaitRes] = useState(false);
@@ -95,25 +99,8 @@ export default function Home() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const handleConnection = async () => {
-    try {
-      if (chromaConfig) {
-        const resp = await fetch("http://localhost:8081/api/v2/healthcheck");
-        if (resp.status === 200) {
-          console.log(resp);
-          setDbOnline(true);
-          toast.success("Database Connected");
-        }
-      }
-    } catch (error) {
-      console.error(error);
-      toast.error("Database healthcheck failed");
-    }
-  };
-
   const handleClearConfig = () => {
     setChromaConfig((prev) => ({ ...prev!, host: "", port: "", collectionID: "", tenant: "", database: "" }));
-    setDbOnline(false);
   }
 
   const handleProcess = () => {
@@ -127,7 +114,12 @@ export default function Home() {
       selectedFiles.forEach(file => {
         formData.append("files", file);
       });
-      const resp = await fetch("http://localhost:8080/process", { method: "POST", body: formData });
+      const resp = await fetch("http://localhost:8080/process", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` },
+        body: formData,
+        mode: "cors"
+      });
       const { object_id } = await resp.json();
       if (resp.ok) {
         setObjectID(object_id);
@@ -162,13 +154,13 @@ export default function Home() {
       toast.error("Server timeout, took too long to respond");
     }
     try {
-      const resp = await fetch(`http://localhost:8080/status?object_id=${objectID}`);
+      const resp = await fetch(`http://localhost:8080/status?object_id=${objectID}`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
       const { status } = await resp.json();
       if (status === "completed") {
-        console.log("Status ", status);
         setHasEmbeddings(true);
       } else if (status === "processing") {
-        console.log("Still processing, will check again in 3s");
         setTimeout(checkStatus, 3000);
       }
     } catch (error) {
@@ -193,11 +185,13 @@ export default function Home() {
       text: [query]
     }
     try {
-      const resp = await fetch("http://localhost:8080/query", { method: "POST", body: JSON.stringify(payload) })
+      const resp = await fetch("http://localhost:8080/query", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      })
       const searchObj: QueryResp = await resp.json();
       if (resp.ok) {
-        console.log("Documents ", searchObj.documents);
-        console.log("Distances ", searchObj.distances);
         toast.success("Distance recived");
         setQueryResp(searchObj);
       }
@@ -231,7 +225,9 @@ export default function Home() {
   const handleExport = async () => {
     const toastID = toast.loading(`Downloading embeddings as ${format}...`);
     try {
-      const resp = await fetch(`http://localhost:8080/export?object_id=${objectID}&format=${format}`);
+      const resp = await fetch(`http://localhost:8080/export?object_id=${objectID}&format=${format}`, {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
       if (resp.ok) {
         const blob = await resp.blob();
         const url = URL.createObjectURL(blob);
@@ -286,7 +282,7 @@ export default function Home() {
         `http://localhost:8080/export-chroma?operation=${operation}&object_id=${objectID}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify(payload)
         }
       );
@@ -301,8 +297,75 @@ export default function Home() {
     }
   }
 
+  const handleAuth = async () => {
+    if (!email) return;
+
+    setLoading(true);
+    try {
+      const resp = await fetch('http://localhost:8080/signup', {
+        method: 'POST',
+        body: JSON.stringify({ email: email }),
+      });
+
+      const data = await resp.json();
+      if (data.token) setToken(data.token);
+    } catch (err) {
+      console.error('Signup failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <>
+      <div className="flex justify-start ml-30">
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="glass"
+              className="group bg-gradient-to-r from-amber-500/10 to-yellow-500/10 hover:from-amber-600/25 hover:to-yellow-600/25 border-amber-400/30 hover:border-amber-400/50 text-amber-100 hover:text-amber-50 transition-all duration-300 shadow-lg hover:shadow-amber-500/20 backdrop-blur-sm rounded"
+              size="sm"
+            >
+              <RxLightningBolt className="text-yellow-400" />
+              quirk Auth
+            </Button>
+          </PopoverTrigger>
+
+          <PopoverContent className="w-72 bg-black/30 backdrop-blur-xl border border-amber-400/30 shadow-2xl shadow-amber-500/10 px-4 py-3 rounded">
+            <div className="space-y-4">
+              <div className="border-b border-amber-400/20 pb-3">
+                <label className="block mb-1 text-amber-300">Email</label>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  className="w-full px-3 py-1 rounded bg-black/40 border border-amber-500/30 text-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  placeholder="enter email"
+                />
+              </div>
+
+              <Button
+                onClick={handleAuth}
+                className="w-full py-1.5 rounded bg-amber-500/20 hover:bg-amber-500/40 text-amber-200 hover:text-white transition"
+                disabled={loading}
+                size="sm"
+              >
+                {loading ? 'Requesting...' : 'Get Token'}
+              </Button>
+
+              <div>
+                <label className="block mb-1 text-amber-300">Token</label>
+                <Input
+                  type="text"
+                  value={token}
+                  disabled
+                  className="w-full px-3 py-1 rounded bg-black/20 border border-amber-500/20 text-amber-300 disabled:text-yellow-400"
+                />
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
       <div className="flex justify-end mr-52">
         <Popover>
           <PopoverTrigger asChild>
@@ -330,6 +393,7 @@ export default function Home() {
                 <div className="space-y-1">
                   <Label htmlFor="host" className="text-amber-100 text-sm font-medium">Host</Label>
                   <Input
+                    type="text"
                     id="host"
                     placeholder="localhost"
                     value={chromaConfig?.host}
@@ -342,6 +406,7 @@ export default function Home() {
                   <div className="space-y-1">
                     <Label htmlFor="port" className="text-amber-100 text-sm font-medium">Port</Label>
                     <Input
+                      type="text"
                       id="port"
                       placeholder="8000"
                       value={chromaConfig?.port}
@@ -353,6 +418,7 @@ export default function Home() {
                   <div className="space-y-1">
                     <Label htmlFor="tenant" className="text-amber-100 text-sm font-medium">Tenant</Label>
                     <Input
+                      type="text"
                       id="tenant"
                       placeholder="default"
                       value={chromaConfig?.tenant}
@@ -365,6 +431,7 @@ export default function Home() {
                 <div className="space-y-1">
                   <Label htmlFor="database" className="text-amber-100 text-sm font-medium">Database</Label>
                   <Input
+                    type="text"
                     id="database"
                     placeholder="default_db"
                     value={chromaConfig?.database}
@@ -376,6 +443,7 @@ export default function Home() {
                 <div className="space-y-1">
                   <Label htmlFor="collection_id" className="text-amber-100 text-sm font-medium">Collection ID</Label>
                   <Input
+                    type="text"
                     id="collection_id"
                     placeholder="550e84...0000"
                     value={chromaConfig?.collectionID}
@@ -393,14 +461,6 @@ export default function Home() {
                   onClick={handleClearConfig}
                 >
                   Clear
-                </Button>
-                <Button
-                  variant="glass"
-                  size="sm"
-                  className="px-3 py-1 bg-amber-500 text-black font-semibold hover:bg-amber-300/80 transition-all rounded duration-300"
-                  onClick={handleConnection}
-                >
-                  Connect
                 </Button>
               </div>
             </div>
@@ -751,11 +811,32 @@ export default function Home() {
                     >
                       {exportingToChroma ? "Storing..." : "Store to Chroma"}
                     </Button>
+                    <div className="flex justify-center gap-1 ml-20">
+                      <Button
+                        onClick={() => setOperation("add")}
+                        size="sm"
+                        variant={operation === "add" ? "secondary" : "glass"}
+                        disabled={!hasEmbeddings || !isChromaConfigured || exportingToChroma}
+                        className="w-30 px-6 py-3"
+                      >
+                        Add
+                      </Button>
+
+                      <Button
+                        onClick={() => setOperation("update")}
+                        size="sm"
+                        disabled={!hasEmbeddings || !isChromaConfigured || exportingToChroma}
+                        variant={operation === "update" ? "secondary" : "glass"}
+                        className="w-30 px-6 py-3"
+                      >
+                        Update
+                      </Button>
+                    </div>
 
                     {hasEmbeddings && isChromaConfigured && (
-                      <div className="text-green-400 text-sm flex items-center gap-1">
-                        <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                        Ready to store
+                      <div className="text-amber-300 text-sm flex items-center gap-1">
+                        <div className="w-2 h-2 bg-amber-400/60 rounded-full animate-pulse"></div>
+                        Ready to {operation}
                       </div>
                     )}
                   </div>
@@ -818,9 +899,9 @@ export default function Home() {
 
                 {/* DB Status */}
                 <div className="flex items-center gap-2">
-                  <div className={`w-3 h-3 rounded-full ${!chromaConfig ? "bg-zinc-200/40" : isDbOnline ? "bg-green-400" : "bg-red-400 animate-pulse"}`} />
-                  <span className={`text-sm font-medium ${!chromaConfig ? "text-zinc-100/40" : isDbOnline ? "text-green-300" : "text-red-300"}`}>
-                    {!chromaConfig ? "Database not Configured" : isDbOnline ? "Database Online" : "Database Offline"}
+                  <div className={`w-3 h-3 rounded-full ${!chromaConfig ? "bg-green-400" : "bg-green-400 animate-pulse"}`} />
+                  <span className={`text-sm font-medium ${!chromaConfig ? "text-green-300" : "text-green-300"}`}>
+                    {!chromaConfig ? "Database not Configured" : "Enter Something to search"}
                   </span>
                 </div>
               </div>
@@ -837,12 +918,11 @@ export default function Home() {
                   className="w-full bg-black/30 border border-amber-400/20 text-amber-100 placeholder:text-amber-400/40"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  disabled={!isDbOnline}
                 />
                 <Button
                   onClick={searchDB}
-                  disabled={!isDbOnline || !query.trim() || waitRes || !chromaConfig}
-                  aria-disabled={!isDbOnline || !query.trim() || waitRes || !chromaConfig}
+                  disabled={!query.trim() || waitRes || !chromaConfig}
+                  aria-disabled={!query.trim() || waitRes || !chromaConfig}
                   className="w-full font-semibold transition-all duration-300 shadow-lg bg-gradient-to-r from-amber-500 to-yellow-500 text-black hover:from-amber-600 hover:to-yellow-600 hover:shadow-amber-500/30 disabled:from-amber-700 disabled:to-amber-800 disabled:text-gray-400 disabled:cursor-not-allowed"
                 >
                   {waitRes ? (
@@ -883,13 +963,11 @@ export default function Home() {
                 <div className="space-y-3 text-sm">
                   {queryResp.distances[0]?.map((distance, idx) => (
                     <div key={idx} className="p-4 bg-black/20 rounded-lg border border-amber-400/20 mb-3">
-                      <p className="text-amber-100 font-mono whitespace-pre-wrap line-clamp-1 truncate">
+                      <p className="text-amber-100 font-mono truncate">
                         <span className="text-amber-400">{idx + 1}. </span>
                         {
                           queryResp.documents[0]?.[idx]
-                            ? (queryResp.documents[0][idx][0] === '\n'
-                              ? queryResp.documents[0][idx].slice(1)
-                              : queryResp.documents[0][idx])
+                            ? queryResp.documents[0][idx].replace(/\n/g, " ")
                             : "Document not found"
                         }
                       </p>
@@ -897,6 +975,7 @@ export default function Home() {
                         Distance: {distance.toFixed(4)}
                       </h3>
                     </div>
+
                   ))}
 
                 </div>
